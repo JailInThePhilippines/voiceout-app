@@ -26,10 +26,6 @@ database.once('open', () => {
 
 database.on('error', (error) => console.log(error));
 
-// Middleware and routes
-app.use(cors());
-app.use(express.json());
-
 // Ensure GridFS is initialized before using it in routes
 app.use((req, res, next) => {
   if (!gfs) {
@@ -39,6 +35,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Middleware and routes
+app.use(express.json());
+app.use(cors());
 // Use routes and pass wss and gfs
 app.use('/api', routes(wss, gfs));
 app.use('/uploads', express.static('uploads'));
