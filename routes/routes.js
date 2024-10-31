@@ -2,9 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const { VoiceOut, Feedback } = require("../models/model");
 const path = require("path");
-const fs = require("fs");
 const WebSocket = require("ws");
-const Grid = require("gridfs-stream");
 
 // Multer configuration to handle file uploads in memory
 const upload = multer({
@@ -24,7 +22,7 @@ const upload = multer({
   },
 });
 
-const createRouter = (wss, gfs) => {
+const createRouter = (wss) => {
   if (!wss) {
     console.warn("WebSocket Server (wss) is not initialized in routes.js");
   }
@@ -34,8 +32,7 @@ const createRouter = (wss, gfs) => {
 
   // Route to create a new voice_out with an image file
   router.post("/postVoiceOut", upload.single("photo"), async (req, res) => {
-    if (!gfs)
-      return res.status(500).json({ message: "GridFS not initialized" });
+    const gfs = req.gfs;
 
     const writeStream = gfs.createWriteStream({
       filename: req.file.originalname,
@@ -90,6 +87,8 @@ const createRouter = (wss, gfs) => {
 
   // Route to delete a voice_out by ID
   router.delete("/deleteVoiceOut/:id", async (req, res) => {
+    const gfs = req.gfs; // Use req.gfs instead of gfs directly
+
     try {
       const voice_out = await VoiceOut.findByIdAndDelete(req.params.id);
       if (!voice_out) return res.status(404).json({ message: "Voice out not found" });
