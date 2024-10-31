@@ -27,8 +27,8 @@ database.once('open', () => {
 database.on('error', (error) => console.log(error));
 
 // Middleware and routes
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
 // Ensure GridFS is initialized before using it in routes
 app.use((req, res, next) => {
