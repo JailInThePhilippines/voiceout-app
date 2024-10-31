@@ -3,21 +3,12 @@ const multer = require("multer");
 const { VoiceOut, Feedback } = require("../models/model");
 const path = require("path");
 const fs = require("fs");
-const WebSocket = require('ws');
+const WebSocket = require("ws");
+const Grid = require("gridfs-stream");
 
-// Multer configuration to handle file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
-
-// Multer middleware to handle image uploads
+// Multer configuration to handle file uploads in memory
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     const fileTypes = /jpeg|jpg|png/;
     const extname = fileTypes.test(
@@ -26,40 +17,47 @@ const upload = multer({
     const mimetype = fileTypes.test(file.mimetype);
 
     if (mimetype && extname) {
-      return cb(null, true);
+      cb(null, true);
     } else {
       cb(new Error("Only images are allowed"));
     }
   },
 });
 
-const createRouter = (wss) => {
+const createRouter = (wss, gfs) => {
   if (!wss) {
     console.warn("WebSocket Server (wss) is not initialized in routes.js");
   }
   const router = express.Router();
 
-  // Serve static files from the uploads directory
-  router.use("/uploads", express.static("uploads"));
-
   /* For Voice Outs Model */
 
   // Route to create a new voice_out with an image file
   router.post("/postVoiceOut", upload.single("photo"), async (req, res) => {
-    const photoPath = req.file ? `/uploads/${req.file.filename}` : null;
+    if (!gfs)
+      return res.status(500).json({ message: "GridFS not initialized" });
 
-    const voice_out = new VoiceOut({
-      voice_out: req.body.voice_out,
-      date: new Date(),
-      photo: photoPath,
+    const writeStream = gfs.createWriteStream({
+      filename: req.file.originalname,
+      content_type: req.file.mimetype,
+      metadata: { voice_out: req.body.voice_out },
     });
 
-    try {
-      const savedVoice_out = await voice_out.save();
+    writeStream.write(req.file.buffer);
+    writeStream.end();
 
-      // Broadcast new voice_out
-      if (wss && wss.clients) {
-        try {
+    writeStream.on("finish", async (file) => {
+      const voice_out = new VoiceOut({
+        voice_out: req.body.voice_out,
+        date: new Date(),
+        photo: file._id,
+      });
+
+      try {
+        const savedVoice_out = await voice_out.save();
+
+        // Broadcast new voice_out
+        if (wss && wss.clients) {
           wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN) {
               client.send(
@@ -67,17 +65,17 @@ const createRouter = (wss) => {
               );
             }
           });
-        } catch (error) {
-          console.error("Error during WebSocket broadcast:", error);
         }
-      } else {
-        console.warn("WebSocket Server is not initialized or has no clients");
-      }
 
-      res.status(200).json(savedVoice_out);
-    } catch (error) {
-      res.status(400).json({ message: error.message });
-    }
+        res.status(200).json(savedVoice_out);
+      } catch (error) {
+        res.status(400).json({ message: error.message });
+      }
+    });
+
+    writeStream.on("error", (error) => {
+      res.status(500).json({ message: "File upload failed", error });
+    });
   });
 
   // Route to fetch voice_outs with photo paths
@@ -94,13 +92,12 @@ const createRouter = (wss) => {
   router.delete("/deleteVoiceOut/:id", async (req, res) => {
     try {
       const voice_out = await VoiceOut.findByIdAndDelete(req.params.id);
-      if (!voice_out)
-        return res.status(404).json({ message: "Voice out not found" });
+      if (!voice_out) return res.status(404).json({ message: "Voice out not found" });
 
-      // Delete the associated file if it exists
+      // Remove the file from GridFS
       if (voice_out.photo) {
-        fs.unlink(path.join(__dirname, "..", voice_out.photo), (err) => {
-          if (err) console.error("Failed to delete file:", err);
+        gfs.remove({ _id: voice_out.photo, root: 'uploads' }, (err) => {
+          if (err) return res.status(500).json({ message: "Failed to delete file", error: err });
         });
       }
 
