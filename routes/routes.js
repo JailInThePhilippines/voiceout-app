@@ -1,17 +1,22 @@
 const express = require("express");
 const multer = require("multer");
 const { VoiceOut, Feedback } = require("../models/model");
-const path = require("path");
-const fs = require("fs");
-const WebSocket = require('ws');
+const WebSocket = require("ws");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
 
-// Multer configuration to handle file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
+// Ensure Cloudinary is configured
+cloudinary.config({
+  cloudinary_url: process.env.CLOUDINARY_URL,
+});
+
+// Set up Cloudinary storage for multer
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "uploads", // Optional: name of the folder in Cloudinary
+    format: async (req, file) => "jpg", // Supports 'png', 'jpg', etc.
+    public_id: (req, file) => Date.now(), // Use current timestamp as the image ID
   },
 });
 
@@ -20,9 +25,7 @@ const upload = multer({
   storage: storage,
   fileFilter: (req, file, cb) => {
     const fileTypes = /jpeg|jpg|png/;
-    const extname = fileTypes.test(
-      path.extname(file.originalname).toLowerCase()
-    );
+    const extname = fileTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = fileTypes.test(file.mimetype);
 
     if (mimetype && extname) {
@@ -39,14 +42,11 @@ const createRouter = (wss) => {
   }
   const router = express.Router();
 
-  // Serve static files from the uploads directory
-  router.use("/uploads", express.static("uploads"));
-
   /* For Voice Outs Model */
 
   // Route to create a new voice_out with an image file
   router.post("/postVoiceOut", upload.single("photo"), async (req, res) => {
-    const photoPath = req.file ? `/uploads/${req.file.filename}` : null;
+    const photoPath = req.file ? req.file.path : null;
 
     const voice_out = new VoiceOut({
       voice_out: req.body.voice_out,
@@ -96,13 +96,6 @@ const createRouter = (wss) => {
       const voice_out = await VoiceOut.findByIdAndDelete(req.params.id);
       if (!voice_out)
         return res.status(404).json({ message: "Voice out not found" });
-
-      // Delete the associated file if it exists
-      if (voice_out.photo) {
-        fs.unlink(path.join(__dirname, "..", voice_out.photo), (err) => {
-          if (err) console.error("Failed to delete file:", err);
-        });
-      }
 
       res.json(voice_out);
     } catch (error) {
