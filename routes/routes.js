@@ -26,9 +26,7 @@ const upload = multer({
   storage: storage,
   fileFilter: (req, file, cb) => {
     const fileTypes = /jpeg|jpg|png/;
-    const extname = fileTypes.test(
-      path.extname(file.originalname).toLowerCase()
-    );
+    const extname = fileTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = fileTypes.test(file.mimetype);
 
     if (mimetype && extname) {
@@ -85,15 +83,8 @@ const createRouter = (wss) => {
 
   // Route to fetch voice_outs with photo paths
   router.get("/getVoiceOuts", async (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
     try {
-      const voice_outs = await VoiceOut.find({})
-        .sort({ date: -1 })
-        .skip(skip)
-        .limit(limit);
+      const voice_outs = await VoiceOut.find({}).sort({ date: -1 });
       res.json(voice_outs);
     } catch (error) {
       res.status(400).json({ message: error.message });
