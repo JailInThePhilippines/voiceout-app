@@ -6,7 +6,7 @@ const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("cloudinary").v2;
 const path = require("path");
 
-// Ensure Cloudinary is configured
+// Configured Cloudinary
 cloudinary.config({
   cloudinary_url: process.env.CLOUDINARY_URL,
 });
@@ -15,24 +15,50 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: "uploads", // Optional: name of the folder in Cloudinary
-    format: async (req, file) => "jpg", // Supports 'png', 'jpg', etc.
-    public_id: (req, file) => Date.now(), // Use current timestamp as the image ID
+    folder: "uploads",
+    public_id: (req, file) => Date.now(),
   },
 });
 
-// Multer middleware to handle image uploads
+// Multer middleware to handle uploads
 const upload = multer({
-  storage: storage,
-  fileFilter: (req, file, cb) => {
-    const fileTypes = /jpeg|jpg|png/;
-    const extname = fileTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = fileTypes.test(file.mimetype);
+  storage: new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: async (req, file) => {
+      let resourceType = "image"; // Default to 'image'
+      const audioVideoTypes = /mp3|mp4|m4a|wav|avi|mkv|mov/;
 
-    if (mimetype && extname) {
-      return cb(null, true);
+      if (audioVideoTypes.test(path.extname(file.originalname).toLowerCase())) {
+        resourceType = "video"; // Set 'video' for audio or video files
+      }
+
+      console.log("Uploading file with resource_type:", resourceType);
+      return {
+        folder: "uploads",
+        resource_type: resourceType,
+        public_id: Date.now().toString(),
+      };
+    },
+  }),
+  fileFilter: (req, file, cb) => {
+    const allowedFileTypes = /jpeg|jpg|png|gif|mp3|mp4|m4a|wav|avi|mkv|mov|pdf|docx|txt/;
+    const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
+
+    const audioVideoTypes = [
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/wav",
+      "video/mp4",
+      "video/avi",
+      "video/mkv",
+      "video/quicktime",
+    ];
+    const isMimeTypeAllowed = allowedFileTypes.test(file.mimetype) || audioVideoTypes.includes(file.mimetype);
+
+    if (extname && isMimeTypeAllowed) {
+      cb(null, true);
     } else {
-      cb(new Error("Only images are allowed"));
+      cb(new Error("Unsupported file type"));
     }
   },
 });
@@ -41,43 +67,42 @@ const createRouter = (wss) => {
   if (!wss) {
     console.warn("WebSocket Server (wss) is not initialized in routes.js");
   }
+  
   const router = express.Router();
 
   /* For Voice Outs Model */
 
-  // Route to create a new voice_out with an image file
-  router.post("/postVoiceOut", upload.single("photo"), async (req, res) => {
-    const photoPath = req.file ? req.file.path : null;
+  // Route to create a new voice_out with a file attachment
+  router.post("/postVoiceOut", upload.single("file"), async (req, res) => {
+    console.log("Uploaded file:", req.file);
+    const filePath = req.file ? req.file.path : null;
 
     const voice_out = new VoiceOut({
       voice_out: req.body.voice_out,
       date: new Date(),
-      photo: photoPath,
+      file: filePath,
     });
 
     try {
-      const savedVoice_out = await voice_out.save();
+      const savedVoiceOut = await voice_out.save();
 
-      // Broadcast new voice_out
+      // Broadcast new voice_out with file URL
       if (wss && wss.clients) {
-        try {
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(
-                JSON.stringify({ type: "voice_out", data: savedVoice_out })
-              );
-            }
-          });
-        } catch (error) {
-          console.error("Error during WebSocket broadcast:", error);
-        }
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(
+              JSON.stringify({ type: "voice_out", data: savedVoiceOut })
+            );
+          }
+        });
       } else {
         console.warn("WebSocket Server is not initialized or has no clients");
       }
 
-      res.status(200).json(savedVoice_out);
+      res.status(200).json(savedVoiceOut);
     } catch (error) {
-      res.status(400).json({ message: error.message });
+      console.error("Error saving voice out:", error);
+      res.status(500).json({ message: error.message });
     }
   });
 

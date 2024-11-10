@@ -10,7 +10,7 @@ const voice_out_schema = new mongoose.Schema({
         default: Date.now,
         required: true
     },
-    photo: {
+    file: {
         type: String,
         required: false
     }
