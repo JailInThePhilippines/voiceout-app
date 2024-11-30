@@ -41,8 +41,11 @@ const upload = multer({
     },
   }),
   fileFilter: (req, file, cb) => {
-    const allowedFileTypes = /jpeg|jpg|png|gif|mp3|mp4|m4a|wav|avi|mkv|mov|pdf|docx|txt/;
-    const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
+    const allowedFileTypes =
+      /jpeg|jpg|png|gif|mp3|mp4|m4a|wav|avi|mkv|mov|pdf|docx|txt/;
+    const extname = allowedFileTypes.test(
+      path.extname(file.originalname).toLowerCase()
+    );
 
     const audioVideoTypes = [
       "audio/mpeg",
@@ -53,7 +56,9 @@ const upload = multer({
       "video/mkv",
       "video/quicktime",
     ];
-    const isMimeTypeAllowed = allowedFileTypes.test(file.mimetype) || audioVideoTypes.includes(file.mimetype);
+    const isMimeTypeAllowed =
+      allowedFileTypes.test(file.mimetype) ||
+      audioVideoTypes.includes(file.mimetype);
 
     if (extname && isMimeTypeAllowed) {
       cb(null, true);
@@ -67,7 +72,7 @@ const createRouter = (wss) => {
   if (!wss) {
     console.warn("WebSocket Server (wss) is not initialized in routes.js");
   }
-  
+
   const router = express.Router();
 
   /* For Voice Outs Model */
@@ -109,8 +114,30 @@ const createRouter = (wss) => {
   // Route to fetch voice_outs with photo paths
   router.get("/getVoiceOuts", async (req, res) => {
     try {
-      const voice_outs = await VoiceOut.find({}).sort({ date: -1 });
-      res.json(voice_outs);
+      // Default page and pageSize values
+      const page = parseInt(req.query.page) || 1; 
+      const pageSize = parseInt(req.query.pageSize) || 20; 
+
+      // Calculate skip and limit
+      const skip = (page - 1) * pageSize;
+      const limit = pageSize;
+
+      // Fetch the total count of voice_outs (for pagination metadata)
+      const totalVoiceOuts = await VoiceOut.countDocuments();
+
+      // Fetch the paginated results
+      const voice_outs = await VoiceOut.find({})
+        .sort({ date: -1 })
+        .skip(skip)
+        .limit(limit);
+
+      res.json({
+        voice_outs,
+        total: totalVoiceOuts, 
+        page, 
+        pageSize,
+        totalPages: Math.ceil(totalVoiceOuts / pageSize),
+      });
     } catch (error) {
       res.status(400).json({ message: error.message });
     }
